@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="0f93ab80-0bdb-414e-8b9e-40843edc04a9" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="9ea1fcc9-4e65-447a-ba8e-84e443adec01" >
+		<file:connection workingDir="D:\"/>
+	</file:config>
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="6c4243af-2814-4bea-8aa0-85a891454ec3" >
+		<jms:active-mq-connection >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<flow name="assessment2Flow" doc:id="807fcf8d-4342-4caa-b477-e4aacd68188f" >
+		<http:listener doc:name="Listener" doc:id="855d0100-e3c1-4a60-8855-c0eec69c465a" config-ref="HTTP_Listener_config" path="/jms"/>
+		<file:read doc:name="Read  csv file from local drive" doc:id="8fbf8310-8f1f-44f8-a46a-2b861f9c6714" config-ref="File_Config" path="test\SalesJan2009.csv"/>
+		<ee:transform doc:name="Change Csv to json" doc:id="3ba5c4e3-8acb-44c6-9f7f-1f5e12d95e35" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transformation as per condition" doc:id="4f1c3c0a-99a1-46d5-8133-c347a5ab9c17" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var l = payload map (item,index) ->
+{
+  "Transaction_date":item.Transaction_date  ,
+  "Product": item.Product,
+  "Price":  item.Price,
+  "Country": item.Country,
+  "Payment_Type": item.Payment_Type
+
+}
+var x =((l map (item,index) -> 
+if(item.Price == "1200" )
+item
+else
+{"Remove":"0"} 
+))
+var y =x  map (item, index) ->
+if(item.Payment_Type=="Mastercard") 
+item
+else
+{"Remove":"0"}
+---
+((y map  (item, index) ->
+if(item.Country== "United States" or item.Country== "Canada" or item.Country== "Spain") 
+item
+else
+{"Remove":"0"})) -- [{"Remove": "0"
+
+}]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<jms:publish doc:name="Publish to Active Mq" doc:id="d9249d2f-a322-45cf-a439-b2c2b065e603" config-ref="JMS_Config" destination="sales_report "/>
+		<flow-ref doc:name="Consume from qUEUE" doc:id="67930b06-1430-493e-877d-479cf2c47a76" name="assessment2Flow1"/>
+	</flow>
+	<flow name="assessment2Flow1" doc:id="d0f43730-c564-4471-ab83-c912e26a7763" >
+		<jms:listener doc:name="Listener" doc:id="c3bdcf0b-8663-4acd-bc30-4b76218d16d1" config-ref="JMS_Config" destination="sales_report">
+			<jms:consumer-type >
+				<jms:queue-consumer />
+			</jms:consumer-type>
+		</jms:listener>
+		<set-payload value="#[payload]" doc:name="Set Payload" doc:id="2fe47682-1e19-4f4d-ab45-cc4bc171bdba" />
+		<logger level="INFO" doc:name="Logger" doc:id="a6db5e8e-9a89-486b-ab96-e6b63d5f53d0" message="#[payload]"/>
+	</flow>
+</mule>
